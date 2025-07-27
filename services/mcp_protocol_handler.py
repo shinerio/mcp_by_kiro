@@ -10,6 +10,7 @@ and provides standardized tool interfaces for AI agents.
 """
 
 import logging
+import time
 from typing import Dict, List, Any, Optional
 from models.mcp_models import (
     MCPRequest, MCPResponse, MCPError, ToolDefinition, ToolResult,
@@ -17,6 +18,8 @@ from models.mcp_models import (
 )
 from services.base64_service import Base64Service
 from services.error_handler import ErrorHandler
+from services.logging_service import get_logger, log_request, log_operation, log_error
+from services.performance_monitor import record_request
 
 
 class MCPProtocolHandler:
@@ -43,11 +46,18 @@ class MCPProtocolHandler:
         """
         self.base64_service = base64_service
         self.error_handler = ErrorHandler()
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
         
         # 注册可用工具
         self.tools: Dict[str, ToolDefinition] = {}
         self._register_tools()
+        
+        self.logger.info("MCP Protocol Handler initialized", extra={
+            'extra_data': {
+                'tools_count': len(self.tools),
+                'available_tools': list(self.tools.keys())
+            }
+        })
         
         self.logger.info(f"MCP Protocol Handler initialized with {len(self.tools)} tools")
     
@@ -82,11 +92,19 @@ class MCPProtocolHandler:
         Returns:
             MCPResponse: MCP响应对象，包含结果或错误信息
         """
-        self.logger.debug(f"Handling MCP request: {request.method} (id: {request.id})")
+        start_time = time.time()
         
         try:
             # 验证请求格式
             if not self._validate_request(request):
+                duration_ms = (time.time() - start_time) * 1000
+                log_request(
+                    __name__,
+                    request.method,
+                    status_code=400,
+                    duration_ms=duration_ms,
+                    extra_data={'request_id': request.id, 'error': 'Invalid request format'}
+                )
                 return MCPResponse(
                     id=request.id,
                     error=MCPError(
@@ -96,25 +114,68 @@ class MCPProtocolHandler:
                 )
             
             # 根据方法分发请求
+            response = None
             if request.method == MCPMethods.LIST_TOOLS:
-                return self._handle_list_tools(request)
+                response = self._handle_list_tools(request)
             elif request.method == MCPMethods.CALL_TOOL:
-                return self._handle_call_tool(request)
+                response = self._handle_call_tool(request)
             elif request.method == MCPMethods.INITIALIZE:
-                return self._handle_initialize(request)
+                response = self._handle_initialize(request)
             elif request.method == MCPMethods.PING:
-                return self._handle_ping(request)
+                response = self._handle_ping(request)
             else:
-                return MCPResponse(
+                response = MCPResponse(
                     id=request.id,
                     error=MCPError(
                         code=MCPErrorCodes.METHOD_NOT_FOUND,
                         message=f"Method '{request.method}' not found"
                     )
                 )
+            
+            # 记录请求处理结果
+            duration_ms = (time.time() - start_time) * 1000
+            status_code = 200 if response.error is None else 400
+            success = response.error is None
+            
+            log_request(
+                __name__,
+                request.method,
+                status_code=status_code,
+                duration_ms=duration_ms,
+                extra_data={
+                    'request_id': request.id,
+                    'has_error': response.error is not None,
+                    'error_code': response.error.code if response.error else None
+                }
+            )
+            
+            # 记录性能监控数据
+            record_request(
+                f"mcp_{request.method}",
+                duration_ms,
+                success,
+                {
+                    'method': request.method,
+                    'has_params': bool(request.params),
+                    'error_code': str(response.error.code) if response.error else None
+                }
+            )
+            
+            return response
                 
         except Exception as e:
-            self.logger.error(f"Error handling request: {str(e)}", exc_info=True)
+            duration_ms = (time.time() - start_time) * 1000
+            log_request(
+                __name__,
+                request.method,
+                status_code=500,
+                duration_ms=duration_ms,
+                extra_data={'request_id': request.id, 'error': str(e)}
+            )
+            log_error(__name__, e, f"Error handling MCP request {request.method}", {
+                'request_id': request.id,
+                'method': request.method
+            })
             return MCPResponse(
                 id=request.id,
                 error=self.error_handler.handle_exception(e)
@@ -270,6 +331,7 @@ class MCPProtocolHandler:
         处理ping请求
         
         简单的健康检查端点，用于验证服务器是否正常运行。
+        根据MCP协议规范，ping响应应该是空的或包含简单的确认信息。
         
         Args:
             request: ping请求
@@ -279,9 +341,10 @@ class MCPProtocolHandler:
         """
         self.logger.debug("Handling ping request")
         
+        # According to MCP specification, ping response should be empty or minimal
         return MCPResponse(
             id=request.id,
-            result={"status": "pong"}
+            result={}
         )
     
     def _call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:

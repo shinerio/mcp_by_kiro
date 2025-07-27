@@ -8,8 +8,12 @@ conversions with proper validation and error handling.
 
 import base64
 import re
+import time
 from abc import ABC, abstractmethod
 from typing import Tuple
+
+from .logging_service import get_logger, log_operation, log_error
+from .performance_monitor import record_request
 
 
 class Base64ServiceInterface(ABC):
@@ -93,6 +97,10 @@ class Base64Service(Base64ServiceInterface):
     # 最大文本长度限制 (1MB)
     MAX_TEXT_LENGTH = 1024 * 1024
     
+    def __init__(self):
+        """初始化Base64服务"""
+        self.logger = get_logger(__name__)
+    
     def encode(self, text: str) -> str:
         """
         将文本字符串编码为base64格式
@@ -109,12 +117,19 @@ class Base64Service(Base64ServiceInterface):
         Raises:
             ValueError: 当输入文本无效时抛出
         """
-        # 验证输入文本
-        is_valid, error_msg = self.is_valid_text(text)
-        if not is_valid:
-            raise ValueError(f"Invalid text input: {error_msg}")
+        start_time = time.time()
         
         try:
+            # 验证输入文本
+            is_valid, error_msg = self.is_valid_text(text)
+            if not is_valid:
+                error = ValueError(f"Invalid text input: {error_msg}")
+                log_error(__name__, error, "Text validation failed", {
+                    'text_length': len(text) if isinstance(text, str) else 'N/A',
+                    'error_message': error_msg
+                })
+                raise error
+            
             # 将文本转换为UTF-8字节
             text_bytes = text.encode('utf-8')
             
@@ -122,12 +137,61 @@ class Base64Service(Base64ServiceInterface):
             encoded_bytes = base64.b64encode(text_bytes)
             
             # 转换为字符串并返回
-            return encoded_bytes.decode('ascii')
+            result = encoded_bytes.decode('ascii')
+            
+            # 记录成功操作
+            duration_ms = (time.time() - start_time) * 1000
+            log_operation(
+                __name__,
+                "base64_encode",
+                duration_ms=duration_ms,
+                success=True,
+                extra_data={
+                    'input_length': len(text),
+                    'output_length': len(result),
+                    'bytes_processed': len(text_bytes)
+                }
+            )
+            
+            # 记录性能监控数据
+            record_request(
+                "base64_encode",
+                duration_ms,
+                True,
+                {
+                    'input_size_category': self._get_size_category(len(text)),
+                    'output_size_category': self._get_size_category(len(result))
+                }
+            )
+            
+            return result
             
         except UnicodeEncodeError as e:
-            raise ValueError(f"Text encoding failed: {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            error = ValueError(f"Text encoding failed: {str(e)}")
+            log_operation(
+                __name__,
+                "base64_encode",
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(error),
+                extra_data={'input_length': len(text) if isinstance(text, str) else 'N/A'}
+            )
+            record_request("base64_encode", duration_ms, False, {'error_type': 'unicode_encode'})
+            raise error
         except Exception as e:
-            raise ValueError(f"Base64 encoding failed: {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            error = ValueError(f"Base64 encoding failed: {str(e)}")
+            log_operation(
+                __name__,
+                "base64_encode",
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(error),
+                extra_data={'input_length': len(text) if isinstance(text, str) else 'N/A'}
+            )
+            record_request("base64_encode", duration_ms, False, {'error_type': 'general'})
+            raise error
     
     def decode(self, base64_string: str) -> str:
         """
@@ -145,24 +209,91 @@ class Base64Service(Base64ServiceInterface):
         Raises:
             ValueError: 当base64字符串格式无效时抛出
         """
-        # 验证base64格式
-        is_valid, error_msg = self.validate_base64(base64_string)
-        if not is_valid:
-            raise ValueError(f"Invalid base64 input: {error_msg}")
+        start_time = time.time()
         
         try:
+            # 验证base64格式
+            is_valid, error_msg = self.validate_base64(base64_string)
+            if not is_valid:
+                error = ValueError(f"Invalid base64 input: {error_msg}")
+                log_error(__name__, error, "Base64 validation failed", {
+                    'input_length': len(base64_string) if isinstance(base64_string, str) else 'N/A',
+                    'error_message': error_msg
+                })
+                raise error
+            
             # 进行base64解码
             decoded_bytes = base64.b64decode(base64_string)
             
             # 转换为UTF-8文本
-            return decoded_bytes.decode('utf-8')
+            result = decoded_bytes.decode('utf-8')
+            
+            # 记录成功操作
+            duration_ms = (time.time() - start_time) * 1000
+            log_operation(
+                __name__,
+                "base64_decode",
+                duration_ms=duration_ms,
+                success=True,
+                extra_data={
+                    'input_length': len(base64_string),
+                    'output_length': len(result),
+                    'bytes_decoded': len(decoded_bytes)
+                }
+            )
+            
+            # 记录性能监控数据
+            record_request(
+                "base64_decode",
+                duration_ms,
+                True,
+                {
+                    'input_size_category': self._get_size_category(len(base64_string)),
+                    'output_size_category': self._get_size_category(len(result))
+                }
+            )
+            
+            return result
             
         except base64.binascii.Error as e:
-            raise ValueError(f"Base64 decoding failed: Invalid base64 format - {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            error = ValueError(f"Base64 decoding failed: Invalid base64 format - {str(e)}")
+            log_operation(
+                __name__,
+                "base64_decode",
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(error),
+                extra_data={'input_length': len(base64_string) if isinstance(base64_string, str) else 'N/A'}
+            )
+            record_request("base64_decode", duration_ms, False, {'error_type': 'invalid_base64'})
+            raise error
         except UnicodeDecodeError as e:
-            raise ValueError(f"Text decoding failed: Invalid UTF-8 sequence - {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            error = ValueError(f"Text decoding failed: Invalid UTF-8 sequence - {str(e)}")
+            log_operation(
+                __name__,
+                "base64_decode",
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(error),
+                extra_data={'input_length': len(base64_string) if isinstance(base64_string, str) else 'N/A'}
+            )
+            record_request("base64_decode", duration_ms, False, {'error_type': 'unicode_decode'})
+            raise error
         except Exception as e:
-            raise ValueError(f"Base64 decoding failed: {str(e)}")
+            duration_ms = (time.time() - start_time) * 1000
+            error = ValueError(f"Base64 decoding failed: {str(e)}")
+            log_operation(
+                __name__,
+                "base64_decode",
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(error),
+                extra_data={'input_length': len(base64_string) if isinstance(base64_string, str) else 'N/A'}
+            )
+            record_request("base64_decode", duration_ms, False, {'error_type': 'general'})
+            raise error
     
     def validate_base64(self, base64_string: str) -> Tuple[bool, str]:
         """
@@ -250,3 +381,22 @@ class Base64Service(Base64ServiceInterface):
             return False, f"Invalid UTF-8 text: {str(e)}"
         
         return True, ""
+    
+    def _get_size_category(self, size: int) -> str:
+        """
+        Get size category for performance monitoring.
+        
+        Args:
+            size: Size in characters/bytes
+            
+        Returns:
+            Size category string
+        """
+        if size < 100:
+            return "small"
+        elif size < 1000:
+            return "medium"
+        elif size < 10000:
+            return "large"
+        else:
+            return "xlarge"

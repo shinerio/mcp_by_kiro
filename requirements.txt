@@ -4,6 +4,26 @@
 # YAML configuration support
 PyYAML>=6.0
 
-# HTTP server enhancements (optional)
-# Will be used for enhanced HTTP transport and API server
-# These will be added in later tasks as needed
+# System monitoring
+psutil>=5.9.0
+
+# HTTP server and web framework
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# JSON-RPC support
+jsonrpc-base>=2.2.0
+
+# Development and testing dependencies
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+
+# Code quality tools
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Documentation
+sphinx>=7.0.0
+sphinx-rtd-theme>=1.3.0

@@ -1,0 +1,33 @@
+# MCP Base64 Server Configuration
+# This file contains the default configuration for the MCP Base64 server
+
+server:
+  name: "mcp-base64-server"
+  version: "1.0.0"
+  description: "MCP server providing base64 encoding and decoding tools"
+
+# Transport configuration
+transport:
+  # Transport type: "stdio" or "http"
+  type: "stdio"
+  
+  # HTTP transport settings (used when type is "http")
+  http:
+    host: "localhost"
+    port: 3000
+    
+# Standalone HTTP API server settings
+http_server:
+  enabled: false
+  host: "0.0.0.0"
+  port: 8080
+  
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+# Debug and development settings
+debug:
+  enabled: false
+  inspector_port: 9000

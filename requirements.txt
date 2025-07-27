@@ -1,0 +1,9 @@
+# MCP Base64 Server Dependencies
+# Core Python packages required for the MCP Base64 server
+
+# YAML configuration support
+PyYAML>=6.0
+
+# HTTP server enhancements (optional)
+# Will be used for enhanced HTTP transport and API server
+# These will be added in later tasks as needed
